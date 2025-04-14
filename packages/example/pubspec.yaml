@@ -6,8 +6,10 @@ description: "Demonstrates how to use the google_ml_kit plugin."
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
 version: 1.0.0+1
 
+resolution: workspace
 environment:
-  sdk: ">=2.15.0 <4.0.0"
+  sdk: ">=3.5.0 <4.0.0"
+
 
 dependencies:
   camera: ^0.11.1
@@ -53,9 +55,9 @@ dependencies:
   google_mlkit_smart_reply:
     path: ../google_mlkit_smart_reply
 
-dependency_overrides:
-  google_mlkit_commons:
-    path: ../google_mlkit_commons
+#dependency_overrides:
+#  google_mlkit_commons:
+#    path: ../google_mlkit_commons
 
 dev_dependencies:
   flutter_lints: ^5.0.0
