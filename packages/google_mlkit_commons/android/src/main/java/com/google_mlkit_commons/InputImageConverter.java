@@ -6,6 +6,7 @@ import android.graphics.SurfaceTexture;
 import android.media.Image;
 import android.media.ImageWriter;
 import android.net.Uri;
+import android.os.Build;
 import android.util.Log;
 import android.view.Surface;
 
@@ -26,8 +27,8 @@ public class InputImageConverter implements AutoCloseable {
 
     //Returns an [InputImage] from the image data received
     public InputImage getInputImageFromData(Map<String, Object> imageData,
-            Context context,
-            MethodChannel.Result result) {
+                                            Context context,
+                                            MethodChannel.Result result) {
         //Differentiates whether the image data is a path for a image file, contains image data in form of bytes, or a bitmap
         String model = (String) imageData.get("type");
         InputImage inputImage;
@@ -38,25 +39,25 @@ public class InputImageConverter implements AutoCloseable {
                     result.error("InputImageConverterError", "Bitmap data is null", null);
                     return null;
                 }
-                
+
                 // Extract the rotation
                 int rotation = 0;
                 Object rotationObj = imageData.get("rotation");
                 if (rotationObj != null) {
                     rotation = (int) rotationObj;
                 }
-                
+
                 try {
                     // Get metadata from the InputImage object if available
                     Map<String, Object> metadataMap = (Map<String, Object>) imageData.get("metadata");
                     if (metadataMap != null) {
                         int width = Double.valueOf(Objects.requireNonNull(metadataMap.get("width")).toString()).intValue();
                         int height = Double.valueOf(Objects.requireNonNull(metadataMap.get("height")).toString()).intValue();
-                        
+
                         // Create bitmap from the Flutter UI raw RGBA bytes
                         android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
                         java.nio.IntBuffer intBuffer = java.nio.IntBuffer.allocate(bitmapData.length / 4);
-                        
+
                         // Convert RGBA bytes to int pixels
                         for (int i = 0; i < bitmapData.length; i += 4) {
                             int r = bitmapData[i] & 0xFF;
@@ -66,7 +67,7 @@ public class InputImageConverter implements AutoCloseable {
                             intBuffer.put((a << 24) | (r << 16) | (g << 8) | b);
                         }
                         intBuffer.rewind();
-                        
+
                         // Copy pixel data to bitmap
                         bitmap.copyPixelsFromBuffer(intBuffer);
                         return InputImage.fromBitmap(bitmap, rotation);
@@ -74,7 +75,7 @@ public class InputImageConverter implements AutoCloseable {
                 } catch (Exception e) {
                     Log.e("ImageError", "Error creating bitmap from raw data", e);
                 }
-                
+
                 // Fallback: Try to decode as standard image format (JPEG, PNG)
                 try {
                     android.graphics.Bitmap bitmap = android.graphics.BitmapFactory.decodeByteArray(bitmapData, 0, bitmapData.length);
@@ -127,31 +128,61 @@ public class InputImageConverter implements AutoCloseable {
                     if (imageFormat == ImageFormat.YUV_420_888) {
                         // This image format is only supported in InputImage.fromMediaImage, which requires to transform the data to the right java type.
                         // TODO: Consider reusing the same Surface across multiple calls to save on allocations.
-                        writer = new ImageWriter.Builder(new Surface(new SurfaceTexture(true)))
-                                .setWidthAndHeight(width, height)
-                                .setImageFormat(imageFormat)
-                                .build();
-                        Image image = writer.dequeueInputImage();
-                        if (image == null) {
-                            result.error("InputImageConverterError", "failed to allocate space for input image", null);
-                            return null;
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                            writer = new ImageWriter.Builder(new Surface(new SurfaceTexture(true)))
+                                    .setWidthAndHeight(width, height)
+                                    .setImageFormat(imageFormat)
+                                    .build();
+
+                            Image image = writer.dequeueInputImage();
+                            if (image == null) {
+                                result.error("InputImageConverterError", "failed to allocate space for input image", null);
+                                return null;
+                            }
+                            // Deconstruct individual planes again from flattened array.
+                            Image.Plane[] planes = image.getPlanes();
+                            // Y plane
+                            ByteBuffer yBuffer = planes[0].getBuffer();
+                            yBuffer.put(data, 0, width * height);
+
+                            // U plane
+                            ByteBuffer uBuffer = planes[1].getBuffer();
+                            int uOffset = width * height;
+                            uBuffer.put(data, uOffset, (width * height) / 4);
+
+                            // V plane
+                            ByteBuffer vBuffer = planes[2].getBuffer();
+                            int vOffset = uOffset + (width * height) / 4;
+                            vBuffer.put(data, vOffset, (width * height) / 4);
+                            return InputImage.fromMediaImage(image, rotationDegrees);
+                        } else {
+                            byte[] nv;
+                            ByteBuffer yBuffer = ByteBuffer.allocate(data.length);
+                            yBuffer.put(data);
+                            byte[] plans2 = (byte[]) Objects.requireNonNull(imageData.get("plans2"));
+                            ByteBuffer uBuffer = ByteBuffer.allocate(plans2.length);
+                            uBuffer.put(plans2);
+                            byte[] plans3 = (byte[]) Objects.requireNonNull(imageData.get("plans3"));
+                            ByteBuffer vBuffer = ByteBuffer.allocate(plans3.length);
+                            vBuffer.put(plans3);
+                            int ySize = yBuffer.position();
+                            int uSize = uBuffer.position();
+                            int vSize = vBuffer.position();
+                            nv = new byte[ySize + uSize + vSize];
+                            yBuffer.get(nv, 0, ySize);
+                            uBuffer.get(nv, 0, uSize);
+                            vBuffer.get(nv, 0, vSize);
+                            if (ySize > 0 && uSize > 0 && vSize > 0) {
+                                return InputImage.fromByteArray(
+                                        nv,
+                                        width,
+                                        height,
+                                        rotationDegrees,
+                                        imageFormat);
+                            } else {
+                                Log.e("ImageError", "0 value" + ySize + "::" + uSize + "::" + vSize);
+                            }
                         }
-                        // Deconstruct individual planes again from flattened array. 
-                        Image.Plane[] planes = image.getPlanes();
-                        // Y plane
-                        ByteBuffer yBuffer = planes[0].getBuffer();
-                        yBuffer.put(data, 0, width * height);
-
-                        // U plane
-                        ByteBuffer uBuffer = planes[1].getBuffer();
-                        int uOffset = width * height;
-                        uBuffer.put(data, uOffset, (width * height) / 4);
-
-                        // V plane
-                        ByteBuffer vBuffer = planes[2].getBuffer();
-                        int vOffset = uOffset + (width * height) / 4;
-                        vBuffer.put(data, vOffset, (width * height) / 4);
-                        return InputImage.fromMediaImage(image, rotationDegrees);
                     }
                     result.error("InputImageConverterError", "ImageFormat is not supported.", null);
                     return null;
@@ -171,7 +202,9 @@ public class InputImageConverter implements AutoCloseable {
     @Override
     public void close() {
         if (writer != null) {
-            writer.close();
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                writer.close();
+            }
         }
     }
 

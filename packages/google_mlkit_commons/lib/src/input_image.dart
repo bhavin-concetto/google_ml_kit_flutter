@@ -10,6 +10,12 @@ class InputImage {
   /// The bytes of the image.
   final Uint8List? bytes;
 
+  /// The bytes of the image.
+  final Uint8List? plans2;
+
+  /// The bytes of the image.
+  final Uint8List? plans3;
+
   /// Raw bitmap pixel data.
   final Uint8List? bitmapData;
 
@@ -25,6 +31,8 @@ class InputImage {
   InputImage._({
     this.filePath,
     this.bytes,
+    this.plans2,
+    this.plans3,
     this.bitmapData,
     required this.type,
     this.metadata,
@@ -46,6 +54,20 @@ class InputImage {
       {required Uint8List bytes, required InputImageMetadata metadata}) {
     return InputImage._(
         bytes: bytes, type: InputImageType.bytes, metadata: metadata);
+  }
+
+  /// Creates an instance of [InputImage] using bytes.yuv_420_888
+  factory InputImage.fromByteWithYuv420888(
+      {required Uint8List bytes,
+      required Uint8List plans2,
+      required Uint8List plans3,
+      required InputImageMetadata metadata}) {
+    return InputImage._(
+        bytes: bytes,
+        plans2: plans2,
+        plans3: plans3,
+        type: InputImageType.bytes,
+        metadata: metadata);
   }
 
   /// Creates an instance of [InputImage] from bitmap data.
@@ -98,6 +120,8 @@ class InputImage {
   /// Returns a json representation of an instance of [InputImage].
   Map<String, dynamic> toJson() => {
         'bytes': bytes,
+        'plans2': plans2,
+        'plans3': plans3,
         'type': type.name,
         'path': filePath,
         'metadata': metadata?.toJson(),

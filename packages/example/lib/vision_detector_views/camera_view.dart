@@ -379,17 +379,44 @@ class _CameraViewState extends State<CameraView> {
     final Uint8List bytes = image.planes.length == 1
         ? image.planes.first.bytes
         : _concatenatePlanes(image);
+    if (image.planes.length > 1) {
+      return InputImage.fromByteWithYuv420888(
+        bytes: _getConcatenatePlanes(image, 0),
+        plans2: _getConcatenatePlanes(image, 1),
+        plans3: _getConcatenatePlanes(image, 2),
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation, // used only in Android
+          format: format,
+          bytesPerRow: image.planes.first.bytesPerRow, // used only in iOS
+        ),
+      );
+    } else {
+      // compose InputImage using bytes
+      return InputImage.fromBytes(
+        bytes: bytes,
+        metadata: InputImageMetadata(
+          size: Size(image.width.toDouble(), image.height.toDouble()),
+          rotation: rotation, // used only in Android
+          format: format,
+          bytesPerRow: image.planes.first.bytesPerRow, // used only in iOS
+        ),
+      );
+    }
+  }
 
-    // compose InputImage using bytes
-    return InputImage.fromBytes(
-      bytes: bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: rotation, // used only in Android
-        format: format,
-        bytesPerRow: image.planes.first.bytesPerRow, // used only in iOS
-      ),
-    );
+  Uint8List _getConcatenatePlanes(CameraImage image, int index) {
+    int count = 0;
+    final Uint8List bytes = Uint8List(0);
+    for (final Plane p in image.planes) {
+      if (count == index) {
+        final Uint8List bytes = Uint8List(p.bytes.length);
+        bytes.setRange(0, p.bytes.length, p.bytes);
+        break;
+      }
+      count++;
+    }
+    return bytes;
   }
 
   Uint8List _concatenatePlanes(CameraImage image) {
